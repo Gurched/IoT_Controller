@@ -1,5 +1,6 @@
 import paho.mqtt.client as mqtt
 import json
+import time
 
 class IoT_Controller:
     client = None
@@ -7,30 +8,10 @@ class IoT_Controller:
     #JSON : JavaScript Object Notation is the format used for the rules below
     # [] lists of items go between []
     # {} lists of key-value pairs go between {} (dictionaries)
-    rules = [
-		{
-			"conditions":[
-                            {"topic":"house/temp", "comparison":">", "value":30},
-                            {"topic":"house/presence", "comparison":"==", "value":1}
-			],
-			"action":{"message":"It's too hot, turn on the AC", "topic":"room/AC", "value":"on"}
-		},
-		{
-			"conditions":[
-                            {"topic":"house/temp", "comparison":"<", "value":20},
-                            {"topic":"house/presence", "comparison":"==", "value":1}
-			],
-			"action":{"message":"It's too cold, turn on the heat", "topic":"room/heat", "value":"on"}
-		},
-		{
-			"conditions":[
-                            {"topic":"house/temp", "comparison":"<", "value":10}
-			],
-			"action":{"message":"It's too cold, turn on the heat to keep the pipes from bursting", "topic":"room/heat", "value":"on"}
-		}
-	]
-
+    rules = []
     mqtt_data = {}
+    # to remember the message we sent out
+    message_log = []
 
     def configure():
         filename = "rules.json"
@@ -58,6 +39,16 @@ class IoT_Controller:
             print("String")
             value = (message.payload.decode("utf-8"))
         topic = message.topic
+
+        #discriminate messages that I sent vs messages that I did not send
+        #if IoT_Controller.message_log contains an entry
+        for entry in IoT_Controller.message_log:
+            if entry["time"] < time.time() - 5:
+                #delete old message_log entries
+                IoT_Controller.message_log.remove(entry)
+            elif entry["topic"] == topic and entry["value"] == value:
+                return
+
         #record the receieved data in our dictionary, replacing any older value for the same topic
         IoT_Controller.mqtt_data[topic] = value
 
@@ -84,25 +75,27 @@ class IoT_Controller:
                     value = None
                     condition_met = False
                 conditions_met = conditions_met and condition_met
-
             if conditions_met:
                 #action
                 action = rule["action"]
                 print(action["message"])
                 IoT_Controller.client.publish(action["topic"],action["value"])
+                #record that we sent that message
+                entry = {"time":time.time(), "topic":action["topic"], "value":action["value"]}
+                IoT_Controller.message_log.append(entry)  #end the item to the end of the list
 
 
     def condition_met(value, comp_operator, comp_value):
         if comp_operator == ">":
             return value > comp_value
         if comp_operator == ">=":
-            return value > comp_value
+            return value >= comp_value
         if comp_operator == "<":
-            return value > comp_value
+            return value < comp_value
         if comp_operator == "<=":
-            return value > comp_value
+            return value <= comp_value
         if comp_operator == "==":
-            return value > comp_value
+            return value == comp_value
 
     def run():
         IoT_Controller.client.loop_forever()
